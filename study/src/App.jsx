@@ -1,138 +1,147 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
 import Button from './components/Button'
 import Dashboard from './components/Dashboard'
+import EmployeesPage from './components/EmployeesPage'
 import Icon from './components/Icon'
 import LoginPage from './components/LoginPage'
 import Modal from './components/Modal'
+import ProfilePage from './components/ProfilePage'
+import ProjectForm from './components/ProjectForm'
+import ProjectPage from './components/ProjectPage'
 import TaskForm from './components/TaskForm'
 import TaskTable from './components/TaskTable'
+import roleLabel from './utils/roleLabel'
+import { logout } from './features/auth/authSlice'
+import {
+  clearTaskData,
+  createProject,
+  createTask,
+  deleteProject,
+  deleteTask,
+  fetchProjectOptions,
+  fetchProjects,
+  fetchTasks,
+  fetchUsers,
+  updateProject,
+  updateTask,
+} from './features/tasks/tasksSlice'
 import './App.css'
 
-const STORAGE_KEY = 'taskflow-tasks'
-const SESSION_KEY = 'taskflow-account-session'
-
-function getSessionAccount() {
-  try {
-    const saved = sessionStorage.getItem(SESSION_KEY)
-    if (!saved) return null
-    const account = JSON.parse(saved)
-    if (typeof account.email !== 'string' || typeof account.name !== 'string' || typeof account.role !== 'string') {
-      throw new Error('Saved account data has an invalid format.')
-    }
-    return account
-  } catch (error) {
-    console.error('Unable to restore the saved account:', error)
-    sessionStorage.removeItem(SESSION_KEY)
-    return null
-  }
-}
-
-const starterTasks = [
-  { id: 't-1', title: 'Refresh onboarding experience', description: 'Simplify the first-run flow and update welcome screens.', assignee: 'Olivia Rhye', status: 'In progress', priority: 'High', dueDate: '2026-11-02' },
-  { id: 't-2', title: 'Review Q4 campaign assets', description: 'Collect feedback from the team on the campaign creative.', assignee: 'Phoenix Baker', status: 'In review', priority: 'High', dueDate: '2026-10-31' },
-  { id: 't-3', title: 'Update customer help center', description: 'Bring the product guides up to date with the latest release.', assignee: 'Lana Steiner', status: 'To do', priority: 'Medium', dueDate: '2026-11-06' },
-  { id: 't-4', title: 'Prepare monthly product report', description: 'Summarize key metrics and product updates for October.', assignee: 'Demi Wilkinson', status: 'Done', priority: 'Medium', dueDate: '2026-10-24' },
-  { id: 't-5', title: 'Audit accessibility contrast', description: 'Check the core application screens against WCAG guidelines.', assignee: 'Candice Wu', status: 'In progress', priority: 'Low', dueDate: '2026-11-10' },
-  { id: 't-6', title: 'Plan customer interview round', description: 'Schedule five customer interviews for the next research cycle.', assignee: 'Natali Craig', status: 'To do', priority: 'Low', dueDate: '2026-11-12' },
-]
-
-function getSavedTasks() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (!saved) return { tasks: starterTasks, error: '' }
-    const parsed = JSON.parse(saved)
-    if (!Array.isArray(parsed) || !parsed.every((task) => (
-      task &&
-      typeof task.id === 'string' &&
-      typeof task.title === 'string' &&
-      typeof task.assignee === 'string' &&
-      typeof task.status === 'string' &&
-      typeof task.priority === 'string' &&
-      typeof task.dueDate === 'string'
-    ))) {
-      throw new Error('Saved task data has an invalid format.')
-    }
-    return { tasks: parsed, error: '' }
-  } catch (error) {
-    console.error('Unable to load saved tasks:', error)
-    return { tasks: starterTasks, error: 'Saved task data could not be loaded. The demo task list is shown instead.' }
-  }
-}
-
 function App() {
-  const [initialData] = useState(getSavedTasks)
-  const [tasks, setTasks] = useState(initialData.tasks)
-  const [storageError, setStorageError] = useState(initialData.error)
-  const [account, setAccount] = useState(getSessionAccount)
+  const dispatch = useDispatch()
+  const { account, token } = useSelector((state) => state.auth)
+  const {
+    items: tasks,
+    projects,
+    projectOptions,
+    users,
+    status: tasksStatus,
+    projectsStatus,
+    projectOptionsStatus,
+    usersStatus,
+    mutationStatus,
+    error: taskError,
+  } = useSelector((state) => state.tasks)
   const [activePage, setActivePage] = useState('Overview')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
+  const [projectFilter, setProjectFilter] = useState('All')
+  const [projectStatusFilter, setProjectStatusFilter] = useState('All')
   const [modal, setModal] = useState(null)
   const [notice, setNotice] = useState('')
 
+  useEffect(() => {
+    if (!account || !token) {
+      dispatch(clearTaskData())
+      return
+    }
+
+    dispatch(fetchTasks())
+    dispatch(fetchUsers())
+    dispatch(fetchProjects())
+    dispatch(fetchProjectOptions())
+  }, [dispatch, account, token])
+
   const filteredTasks = useMemo(() => tasks.filter((task) => {
-    const matchesSearch = `${task.title} ${task.description} ${task.assignee}`.toLowerCase().includes(search.toLowerCase())
-    return matchesSearch && (statusFilter === 'All' || task.status === statusFilter)
-  }), [tasks, search, statusFilter])
-
-  const saveTasks = (nextTasks) => {
-    setTasks(nextTasks)
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextTasks))
-      setStorageError('')
-    } catch (error) {
-      console.error('Unable to save tasks:', error)
-      setStorageError('Changes could not be saved in this browser. Check your storage settings.')
-    }
-  }
-
-  const handleLogin = (signedInAccount) => {
-    const accountSession = {
-      name: signedInAccount.name,
-      email: signedInAccount.email,
-      role: signedInAccount.role,
-      initials: signedInAccount.initials,
-    }
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(accountSession))
-    setAccount(accountSession)
-  }
+    const matchesSearch = `${task.title} ${task.description} ${task.assignee} ${task.projectName}`.toLowerCase().includes(search.toLowerCase())
+    const matchesProject = projectFilter === 'All' || task.projectId?.toString() === projectFilter
+    return matchesSearch && matchesProject && (statusFilter === 'All' || task.status === statusFilter)
+  }), [tasks, search, statusFilter, projectFilter])
 
   const handleLogout = () => {
-    sessionStorage.removeItem(SESSION_KEY)
-    setAccount(null)
+    dispatch(logout())
+    dispatch(clearTaskData())
+    setModal(null)
     setActivePage('Overview')
   }
 
-  const saveTask = (values) => {
-    if (modal?.task) {
-      saveTasks(tasks.map((task) => task.id === modal.task.id ? { ...task, ...values } : task))
-      setNotice(`“${values.title}” has been updated.`)
-    } else {
-      saveTasks([{ ...values, id: crypto.randomUUID(), createdAt: new Date().toISOString() }, ...tasks])
-      setNotice(`“${values.title}” has been created.`)
+  const saveTask = async (values) => {
+    try {
+      if (modal?.task) {
+        await dispatch(updateTask({ id: modal.task.id, values })).unwrap()
+        setNotice(`“${values.title}” has been updated.`)
+      } else {
+        await dispatch(createTask(values)).unwrap()
+        setNotice(`“${values.title}” has been created.`)
+      }
+      setModal(null)
+    } catch {
+      // The failed request is shown from the task slice.
     }
-    setModal(null)
   }
 
-  const deleteTask = (task) => {
+  const saveProject = async (values) => {
+    try {
+      if (modal?.project) {
+        await dispatch(updateProject({ id: modal.project.id, values })).unwrap()
+        setNotice(`“${values.name}” has been updated.`)
+      } else {
+        await dispatch(createProject(values)).unwrap()
+        setNotice(`“${values.name}” has been created.`)
+      }
+      dispatch(fetchProjectOptions())
+      setModal(null)
+    } catch {
+      // The failed request is shown from the task slice.
+    }
+  }
+
+  const handleDeleteProject = async (project) => {
+    if (!window.confirm(`Delete “${project.name}”? Projects with tasks must be empty first.`)) return
+    try {
+      await dispatch(deleteProject(project.id)).unwrap()
+      dispatch(fetchProjectOptions())
+      setNotice(`“${project.name}” has been deleted.`)
+    } catch {
+      // The failed request is shown from the task slice.
+    }
+  }
+
+  const handleDeleteTask = async (task) => {
     if (!window.confirm(`Delete “${task.title}”? This action cannot be undone.`)) return
-    saveTasks(tasks.filter((entry) => entry.id !== task.id))
-    setNotice(`“${task.title}” has been deleted.`)
+    try {
+      await dispatch(deleteTask(task.id)).unwrap()
+      setNotice(`“${task.title}” has been deleted.`)
+    } catch {
+      // The failed request is shown from the task slice.
+    }
   }
 
-  if (!account) return <LoginPage onLogin={handleLogin} />
+  if (!account) return <LoginPage />
+  const canManageTeam = ['admin', 'manager'].includes(account.role)
+  const canManageTask = (task) => canManageTeam || task.createdById === account.id || task.assigneeId === account.id
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <a className="brand" href="#" onClick={(event) => { event.preventDefault(); setActivePage('Overview') }}>
           <span className="brand-mark"><Icon name="grid" /></span>
-          <span>taskflow<span className="brand-period">.</span></span>
+          <span>PROMOTION KART<span className="brand-period">.</span></span>
         </a>
         <div className="workspace-switcher">
-          <span className="workspace-avatar">A</span>
-          <span className="workspace-copy"><strong>Acme Studio</strong><small>{account.role} workspace</small></span>
-          <Icon name="chevrons" />
+          <span className="workspace-avatar">{account.name.trim().charAt(0).toUpperCase()}</span>
+          <span className="workspace-copy"><strong>{account.name}</strong><small>{roleLabel(account.role)} workspace</small></span>
         </div>
         <span className="nav-label">WORKSPACE</span>
         <nav className="main-nav" aria-label="Main navigation">
@@ -144,10 +153,11 @@ function App() {
               <Icon name={item.icon} /><span>{item.label}</span>{item.count !== undefined && <span className="nav-count">{item.count}</span>}
             </button>
           ))}
-          <button className="nav-link" onClick={() => setNotice('Projects are coming soon.')}><Icon name="grid" /><span>Projects</span></button>
+          <button className={`nav-link ${activePage === 'Projects' ? 'is-active' : ''}`} onClick={() => setActivePage('Projects')}><Icon name="grid" /><span>Projects</span><span className="nav-count">{projects.length}</span></button>
+          {account.role === 'admin' && <button className={`nav-link ${activePage === 'Employees' ? 'is-active' : ''}`} onClick={() => setActivePage('Employees')}><Icon name="users" /><span>Employees</span><span className="nav-count">{users.filter((user) => user.role === 'employee').length}</span></button>}
         </nav>
         <div className="sidebar-bottom">
-          <button className="nav-link" onClick={() => setNotice('Settings are coming soon.')}><Icon name="settings" /><span>Settings</span></button>
+          <button className={`nav-link ${activePage === 'Profile' ? 'is-active' : ''}`} onClick={() => setActivePage('Profile')}><Icon name="users" /><span>Profile</span></button>
           <div className="sidebar-profile">
             <span className="profile-avatar">{account.initials}</span>
             <span className="profile-copy"><strong>{account.name}</strong><small>{account.email}</small></span>
@@ -167,25 +177,80 @@ function App() {
         </header>
 
         <div className="page-content">
-          {storageError && <div className="storage-alert" role="alert">{storageError}</div>}
+          {taskError && (
+            <div className="storage-alert" role="alert">
+              <span>{taskError}</span>
+              <button type="button" onClick={() => { dispatch(fetchTasks()); dispatch(fetchUsers()); dispatch(fetchProjects()); dispatch(fetchProjectOptions()) }}>Retry</button>
+            </div>
+          )}
           {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice('')}>×</button></div>}
           {activePage === 'Overview' ? (
-            <Dashboard tasks={tasks} userName={account.name} onViewTasks={() => setActivePage('Tasks')} />
+            tasksStatus === 'loading' && tasks.length === 0
+              ? <div className="loading-state" role="status">Loading your workspace…</div>
+              : <Dashboard tasks={tasks} userName={account.name} role={account.role} onViewTasks={() => { setProjectFilter('All'); setActivePage('Tasks') }} />
+          ) : activePage === 'Profile' ? (
+            <ProfilePage onCancel={() => setActivePage('Overview')} />
+          ) : activePage === 'Employees' && account.role === 'admin' ? (
+            <EmployeesPage onCreated={(employee) => setNotice(`${employee.name} has been added to the team.`)} />
+          ) : activePage === 'Projects' ? (
+            projectsStatus === 'loading' && projects.length === 0
+              ? <div className="loading-state" role="status">Loading projects…</div>
+              : <ProjectPage
+                projects={projects}
+                statusFilter={projectStatusFilter}
+                onFilter={setProjectStatusFilter}
+                canManageProjects={canManageTeam}
+                onCreate={() => setModal({ project: null })}
+                onEdit={(project) => setModal({ project })}
+                onDelete={handleDeleteProject}
+                onViewTasks={(project) => {
+                  setProjectFilter(project.id.toString())
+                  setActivePage('Tasks')
+                }}
+              />
           ) : (
             <section className="tasks-page">
               <div className="page-heading">
-                <div><p className="eyebrow">YOUR WORKSPACE</p><h1>Tasks</h1><p className="page-subtitle">Plan, prioritize, and keep your team moving forward.</p></div>
-                <Button onClick={() => setModal({ task: null })}><Icon name="plus" /> New task</Button>
+                <div><p className="eyebrow">{roleLabel(account.role).toUpperCase()} WORKSPACE</p><h1>{canManageTeam ? 'Team tasks' : 'My tasks'}</h1><p className="page-subtitle">{canManageTeam ? 'Plan, assign, and track work across your team.' : 'Review and update the tasks assigned to you.'}</p></div>
+                <Button onClick={() => setModal({ task: null })} disabled={usersStatus === 'loading' || users.length === 0}><Icon name="plus" /> New task</Button>
               </div>
-              <TaskTable tasks={filteredTasks} search={search} onSearch={setSearch} statusFilter={statusFilter} onFilter={setStatusFilter} onEdit={(task) => setModal({ task })} onDelete={deleteTask} />
+              {tasksStatus === 'loading' && <div className="loading-state" role="status">Loading tasks…</div>}
+              {projectOptionsStatus === 'succeeded' && projectOptions.length === 0 && (
+                <div className="project-required-note" role="status">
+                  <Icon name="grid" />
+                  <span>{canManageTeam ? 'No active projects yet. You can still create personal tasks.' : 'You can create personal tasks now, or ask a manager to assign you to an active project.'}</span>
+                  {canManageTeam && <Button variant="secondary" onClick={() => setActivePage('Projects')}>View projects</Button>}
+                </div>
+              )}
+              <TaskTable tasks={filteredTasks} projects={projects} projectFilter={projectFilter} onProjectFilter={setProjectFilter} search={search} onSearch={setSearch} statusFilter={statusFilter} onFilter={setStatusFilter} onEdit={(task) => setModal({ task })} onDelete={handleDeleteTask} canManageTask={canManageTask} />
             </section>
           )}
         </div>
       </main>
 
       {modal && (
-        <Modal title={modal.task ? 'Edit task' : 'Create a task'} onClose={() => setModal(null)}>
-          <TaskForm task={modal.task} onCancel={() => setModal(null)} onSubmit={saveTask} />
+        <Modal
+          title={activePage === 'Projects'
+            ? modal.project ? 'Edit project' : 'Create a project'
+            : modal.task ? 'Edit task' : 'Create a task'}
+          onClose={() => setModal(null)}
+        >
+          {activePage === 'Projects' ? (
+            <ProjectForm project={modal.project} users={users} isSaving={mutationStatus === 'loading'} onCancel={() => setModal(null)} onSubmit={saveProject} />
+          ) : (
+            <TaskForm
+              task={modal.task}
+              users={users}
+              projects={modal.task && !projectOptions.some((project) => project.id === modal.task.projectId)
+                ? [...projectOptions, projects.find((project) => project.id === modal.task.projectId)].filter(Boolean)
+                : projectOptions}
+              accountId={account.id}
+              role={account.role}
+              isSaving={mutationStatus === 'loading'}
+              onCancel={() => setModal(null)}
+              onSubmit={saveTask}
+            />
+          )}
         </Modal>
       )}
     </div>
